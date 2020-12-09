@@ -212,72 +212,58 @@ function  qs_cloudwatch_install() {
 
 function qs_ecs_agent_install() {
     echo "[INFO] install AWS ECS Agent"
-    if [ "$INSTANCE_OSTYPE" == "amzn" ] && [ "$INSTANCE_OSVERSION" == "2" ]; then
-        echo "[ERROR] ecs agent install is not currently support on this OS"
-        exit 1
-    elif [ "$INSTANCE_OSTYPE" == "amzn" ]; then
-        echo "[ERROR] ecs agent install is not currently support on this OS"
-        exit 1
+
+    if [ "$INSTANCE_OSTYPE" == "amzn" ]; then
+        yum install -y iptables-persistent 
     elif [ "$INSTANCE_OSTYPE" == "ubuntu" ]; then
-        # Install Docker & iptables
         apt-get install -y docker.io iptables-persistent
-
-        # Set auto save to avoid interactive prompt on changes
-        # echo iptables-persistent iptables-persistent/autosave_v6 boolean true | debconf-set-selections
-        echo iptables-persistent iptables-persistent/autosave_v4 boolean true | debconf-set-selections
-
-        echo 'net.ipv4.conf.all.route_localnet = 1' >> /etc/sysctl.conf
-        sysctl -p /etc/sysctl.conf
-        sudo iptables -t nat -A PREROUTING -p tcp -d 169.254.170.2 --dport 80 -j DNAT --to-destination 127.0.0.1:51679
-        sudo iptables -t nat -A OUTPUT -d 169.254.170.2 -p tcp -m tcp --dport 80 -j REDIRECT --to-ports 51679
-        sudo iptables-save > /etc/iptables/rules.v4
-
-        # Create directories for ECS agent
-        mkdir -p /var/log/ecs /var/lib/ecs/data /etc/ecs
-
-        # Write systemd unit file
-        cat << EOF > /etc/systemd/system/docker-container@ecs-agent.service
-        [Unit]
-        Description=Docker Container %I
-        Requires=docker.service
-        After=docker.service
-
-        [Service]
-        Restart=always
-        ExecStartPre=-/usr/bin/docker rm -f %i 
-        ExecStart=/usr/bin/docker run --name %i \
-        --restart=on-failure:10 \
-        --volume=/var/run:/var/run \
-        --volume=/var/log/ecs/:/log \
-        --volume=/var/lib/ecs/data:/data \
-        --volume=/etc/ecs:/etc/ecs \
-        --net=host \
-        --env-file=/etc/ecs/ecs.config \
-        amazon/amazon-ecs-agent:latest
-        ExecStop=/usr/bin/docker stop %i
-
-        [Install]
-        WantedBy=default.target
-EOF
-
-        systemctl enable docker-container@ecs-agent.service
-        systemctl start docker-container@ecs-agent.service
-        
-    elif [ "$INSTANCE_OSTYPE" == "rhel" ]; then
-        echo "[ERROR] ecs agent install is not currently support on this OS"
-        exit 1    
-    elif [ "$INSTANCE_OSTYPE" == "centos" ]; then
-        echo "[ERROR] ecs agent install is not currently support on this OS"
-        exit 1    
-    elif [ "$INSTANCE_OSTYPE" == "fedora" ]; then
-        echo "[ERROR] ecs agent install is not currently support on this OS"
-        exit 1    
-    elif [ "$INSTANCE_OSTYPE" == "sles" ]; then
-        echo "[ERROR] ecs agent install is not currently support on this OS"
-        exit 1    
+    #TODO add support for other os
     else
+        echo "[WARNING] OS not supported for ECS install"
         exit 1
     fi
+
+
+    # Set auto save to avoid interactive prompt on changes
+    echo iptables-persistent iptables-persistent/autosave_v6 boolean true | debconf-set-selections
+    echo iptables-persistent iptables-persistent/autosave_v4 boolean true | debconf-set-selections
+
+    echo 'net.ipv4.conf.all.route_localnet = 1' >> /etc/sysctl.conf
+    sysctl -p /etc/sysctl.conf
+    iptables -t nat -A PREROUTING -p tcp -d 169.254.170.2 --dport 80 -j DNAT --to-destination 127.0.0.1:51679
+    iptables -t nat -A OUTPUT -d 169.254.170.2 -p tcp -m tcp --dport 80 -j REDIRECT --to-ports 51679
+    iptables-save > /etc/iptables/rules.v4
+
+    # Create directories for ECS agent
+    mkdir -p /var/log/ecs /var/lib/ecs/data /etc/ecs
+
+    # Write systemd unit file
+    cat << EOF > /etc/systemd/system/docker-container@ecs-agent.service
+    [Unit]
+    Description=Docker Container %I
+    Requires=docker.service
+    After=docker.service
+
+    [Service]
+    Restart=always
+    ExecStartPre=-/usr/bin/docker rm -f %i 
+    ExecStart=/usr/bin/docker run --name %i \
+    --restart=on-failure:10 \
+    --volume=/var/run:/var/run \
+    --volume=/var/log/ecs/:/log \
+    --volume=/var/lib/ecs/data:/data \
+    --volume=/etc/ecs:/etc/ecs \
+    --net=host \
+    --env-file=/etc/ecs/ecs.config \
+    amazon/amazon-ecs-agent:latest
+    ExecStop=/usr/bin/docker stop %i
+
+    [Install]
+    WantedBy=default.target
+EOF
+
+    systemctl enable docker-container@ecs-agent.service
+    systemctl start docker-container@ecs-agent.service
 
     if [ $(which cfn-signal) ];then
       echo "[FOUND] (cfn-signal)"
